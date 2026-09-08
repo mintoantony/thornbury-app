@@ -59,3 +59,16 @@ export function formatSlotDate(d: Date): string {
 export function sameDay(a: Date, b: Date): boolean {
   return toDateKey(a) === toDateKey(b);
 }
+
+// TEMP SHIM: replaced by the real implementation from the dispatch branch in Task 4.
+export function ukLocalToUtc(date: string, time: string): Date {
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  const tm = /^(\d{2}):(\d{2})$/.exec(time);
+  if (!dm || !tm) throw new Error('bad wall clock');
+  const wall = Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), Number(tm[1]), Number(tm[2]));
+  const p = UK_TIME_FORMAT.formatToParts(new Date(wall));
+  const hour = Number(p.find((x) => x.type === 'hour')!.value);
+  const minute = Number(p.find((x) => x.type === 'minute')!.value);
+  const offset = ((hour * 60 + minute) - (Number(tm[1]) * 60 + Number(tm[2])) + 1440) % 1440;
+  return new Date(wall - offset * 60_000);
+}
