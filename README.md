@@ -8,17 +8,24 @@ web front end talks to. The desktop product is not in here.
 No install step. Node 22.6 or newer runs the TypeScript directly.
 
 ```
+npm start       # http://localhost:4310 serves the web app and the API
 npm test        # the suite
-npm start       # http://localhost:4310
 ```
 
-## Layout
+## What is in it
 
-- `src/invoices` billing. Totals, balances.
-- `src/scheduling` work orders, engineer dispatch, customer appointment windows.
-- `src/shared` money and dates. Both are used by both sides, so changes here reach further than they look.
-- `src/db.ts` the seed data. Stands in for the SQL Server tables.
-- `jobs/` the support queue. Four things waiting to be done.
+- `public/` the web app. Front door, customer accounts with invoices, VAT and a
+  printable statement, and the operations board with visits by engineer, unassigned
+  work and a booking form.
+- `src/server.ts` routing. `GET /api` lists the endpoints.
+- `src/invoices` billing. Totals with VAT on engineer work, balances, statements.
+- `src/scheduling` work orders, visits and customer appointment windows. One visit
+  per address per UK day; an engineer is only given a visit they are free for.
+- `src/shared` money and dates. Money is in pence. Dates are stored UTC and shown
+  UK local, and a booking typed in UK time is converted on the way in.
+- `src/db.ts` the seed data. Stands in for the SQL Server tables. Writes live in
+  memory until the process stops.
+- `jobs/` the support queue this work came from.
 
 ## Notes from the team
 
