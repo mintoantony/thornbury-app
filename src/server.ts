@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, normalize, resolve } from 'node:path';
+import { extname, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { customers, engineers, invoices, workOrders, type Invoice, type WorkOrder } from './db.ts';
 import { totalFor, outstandingFor } from './invoices/calc.ts';
@@ -13,6 +13,11 @@ import { format } from './shared/money.ts';
 const PORT = Number(process.env.PORT ?? 4310);
 const PUBLIC_DIR = resolve(fileURLToPath(new URL('../public/', import.meta.url)));
 const SKILLS = ['METER', 'LEAK', 'BACKFLOW'];
+// A whole day. Anything longer is a typo, and a big enough one breaks every later
+// /dispatch and /slots request with an invalid date.
+const MAX_DURATION_MINUTES = 1440;
+// Every body we accept is a small JSON object. Anything larger is not a booking.
+const MAX_BODY_BYTES = 64 * 1024;
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -46,18 +51,34 @@ function methodNotAllowed(res: ServerResponse, allow: string) {
   return json(res, 405, { error: 'method not allowed' });
 }
 
+class BodyTooLargeError extends Error {}
+
 async function readJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let size = 0;
+  let tooLarge = false;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY_BYTES) {
+      tooLarge = true;
+      chunks.length = 0;
+      break;
+    }
+    chunks.push(chunk as Buffer);
+  }
+  if (tooLarge) throw new BodyTooLargeError('body too large');
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
 // Anything under public/ with a known extension. The root is the app shell.
 async function serveStatic(res: ServerResponse, pathname: string): Promise<boolean> {
+  // A Windows drive letter or a backslash in the request target survives resolve()
+  // and lands outside public/ entirely. Neither belongs in a URL path.
+  if (pathname.includes('\\') || pathname.includes(':')) return false;
   const relative = pathname === '/' ? 'index.html' : pathname.slice(1);
   const file = resolve(PUBLIC_DIR, normalize(relative));
   const type = CONTENT_TYPES[extname(file)];
-  if (!file.startsWith(PUBLIC_DIR) || !type) return false;
+  if (!file.startsWith(PUBLIC_DIR + sep) || !type) return false;
   try {
     const body = await readFile(file);
     res.writeHead(200, { 'content-type': type });
@@ -88,8 +109,17 @@ function bookWorkOrder(body: unknown): { status: number; body: unknown } {
   if (typeof requires !== 'string' || !SKILLS.includes(requires)) {
     return { status: 400, body: { error: `requires must be one of ${SKILLS.join(', ')}` } };
   }
-  if (!Number.isInteger(durationMinutes) || (durationMinutes as number) <= 0) {
-    return { status: 400, body: { error: 'durationMinutes must be a positive whole number' } };
+  if (
+    !Number.isInteger(durationMinutes)
+    || (durationMinutes as number) <= 0
+    || (durationMinutes as number) > MAX_DURATION_MINUTES
+  ) {
+    return {
+      status: 400,
+      body: {
+        error: `durationMinutes must be a positive whole number of minutes, at most ${MAX_DURATION_MINUTES}`,
+      },
+    };
   }
   let requestedAt: Date;
   try {
@@ -160,7 +190,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     let body: unknown;
     try {
       body = await readJson(req);
-    } catch {
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) return json(res, 400, { error: 'body too large' });
       return json(res, 400, { error: 'body must be JSON' });
     }
     const result = bookWorkOrder(body);
@@ -183,7 +214,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
 }
 
 export const server = createServer((req, res) => {
-  handle(req, res).catch(() => json(res, 500, { error: 'server error' }));
+  handle(req, res).catch(() => {
+    if (!res.headersSent) json(res, 500, { error: 'server error' });
+  });
 });
 
 if (process.argv[1]?.endsWith('server.ts')) {

@@ -3,6 +3,7 @@ const app = document.getElementById('app');
 const api = {
   async get(path) {
     const response = await fetch(path);
+    if (!response.ok) throw new Error(`GET ${path} returned ${response.status}`);
     return response.json();
   },
   async post(path, body) {
@@ -57,9 +58,9 @@ async function customers() {
     <thead><tr><th>Account</th><th>Name</th><th>Type</th><th>Address</th><th>VAT registered</th></tr></thead>
     <tbody>${list.map((c) => `
       <tr>
-        <td><a href="#/customers/${c.id}">${c.id}</a></td>
-        <td><a href="#/customers/${c.id}">${esc(c.name)}</a></td>
-        <td>${c.accountType.toLowerCase()}</td>
+        <td><a href="#/customers/${esc(c.id)}">${esc(c.id)}</a></td>
+        <td><a href="#/customers/${esc(c.id)}">${esc(c.name)}</a></td>
+        <td>${esc(c.accountType.toLowerCase())}</td>
         <td>${esc(c.address)}</td>
         <td>${c.vatRegistered ? 'Yes' : 'No'}</td>
       </tr>`).join('')}
@@ -77,19 +78,19 @@ async function account(id) {
 
   const invoiceRows = invoices.map((i) => `
     <tr>
-      <td>${i.id}</td>
+      <td>${esc(i.id)}</td>
       <td>${longDate(i.issued)}</td>
-      <td>${i.source.toLowerCase().replace('_', ' ')}</td>
+      <td>${esc(i.source.toLowerCase().replace('_', ' '))}</td>
       <td class="num">${pence(i.net)}</td>
       <td class="num">${pence(i.vat)}</td>
       <td class="num">${pence(i.total)}</td>
       <td>${i.paid ? '<span class="tag ok">Paid</span>' : '<span class="tag due">Outstanding</span>'}</td>
-      <td>${i.paid ? '' : `<button class="btn small" data-pay="${i.id}">Mark paid</button>`}</td>
+      <td>${i.paid ? '' : `<button class="btn small" data-pay="${esc(i.id)}">Mark paid</button>`}</td>
     </tr>`).join('');
 
   const statementRows = statement.invoices.map((i) => `
     <tr>
-      <td>${i.id}</td>
+      <td>${esc(i.id)}</td>
       <td>${longDate(i.issued)}</td>
       <td class="num">${pence(i.net)}</td>
       <td class="num">${pence(i.vat)}</td>
@@ -98,13 +99,13 @@ async function account(id) {
     </tr>`).join('');
 
   return `
-  <p class="crumbs"><a href="#/customers">Customers</a> / ${customer.id}</p>
+  <p class="crumbs"><a href="#/customers">Customers</a> / ${esc(customer.id)}</p>
   <header class="account-head">
     <div>
       <h1>${esc(customer.name)}</h1>
-      <p class="muted">${esc(customer.address)} · ${customer.accountType.toLowerCase()}${customer.vatRegistered ? ' · VAT registered' : ''}</p>
+      <p class="muted">${esc(customer.address)} · ${esc(customer.accountType.toLowerCase())}${customer.vatRegistered ? ' · VAT registered' : ''}</p>
     </div>
-    <div class="balance"><span class="label">Outstanding</span><strong>${customer.outstanding}</strong></div>
+    <div class="balance"><span class="label">Outstanding</span><strong>${esc(customer.outstanding)}</strong></div>
   </header>
 
   <section>
@@ -120,7 +121,7 @@ async function account(id) {
     <div class="sheet">
       <div class="sheet-top">
         <div><strong>Thornbury Systems</strong><br>Statement of account</div>
-        <div class="right">${esc(statement.customer.name)}<br>${esc(statement.customer.address)}<br>Account ${statement.customer.id}<br>${longDate(new Date().toISOString())}</div>
+        <div class="right">${esc(statement.customer.name)}<br>${esc(statement.customer.address)}<br>Account ${esc(statement.customer.id)}<br>${longDate(new Date().toISOString())}</div>
       </div>
       <table>
         <thead><tr><th>Invoice</th><th>Issued</th><th class="num">Net</th><th class="num">VAT</th><th class="num">Total</th><th>Status</th></tr></thead>
@@ -153,30 +154,30 @@ async function operations() {
     const visits = plan.visits.filter((v) => v.engineerId === e.id);
     const rows = visits.length ? visits.map((v) => `
       <div class="visit">
-        <div class="when"><strong>${longDate(v.startsAt)}</strong><span>${v.window}</span></div>
+        <div class="when"><strong>${longDate(v.startsAt)}</strong><span>${esc(v.window)}</span></div>
         <div>
           <strong>${esc(v.address)}</strong><br>
-          <span class="muted">${name(v.customerId)} · ${v.requires.join(' + ')} · ${v.durationMinutes} min · ${v.workOrderIds.join(', ')}</span>
+          <span class="muted">${name(v.customerId)} · ${esc(v.requires.join(' + '))} · ${esc(v.durationMinutes)} min · ${esc(v.workOrderIds.join(', '))}</span>
         </div>
       </div>`).join('') : '<p class="muted">Nothing planned.</p>';
-    return `<article class="engineer"><h3>${esc(e.name)} <span class="muted">${e.id} · ${e.skills.join(', ')}</span></h3>${rows}</article>`;
+    return `<article class="engineer"><h3>${esc(e.name)} <span class="muted">${esc(e.id)} · ${esc(e.skills.join(', '))}</span></h3>${rows}</article>`;
   }).join('');
 
   const unassigned = plan.unassigned.length ? `<ul class="unassigned">${plan.unassigned.map((u) => `
     <li>
-      <strong>${u.workOrderId}</strong> ${esc(u.address)} · ${u.requires} · ${longDate(u.requestedAt)} ${slotById[u.workOrderId]?.window ?? ''}<br>
+      <strong>${esc(u.workOrderId)}</strong> ${esc(u.address)} · ${esc(u.requires)} · ${longDate(u.requestedAt)} ${esc(slotById[u.workOrderId]?.window ?? '')}<br>
       <span class="why">${u.reason === 'NO_ENGINEER_FREE' ? 'No engineer free' : 'No engineer with the skill'}: ${esc(u.detail)}</span>
     </li>`).join('')}</ul>` : '<p class="muted">Everything on the queue has an engineer.</p>';
 
   const queueRows = orders.map((o) => `
     <tr>
-      <td>${o.id}</td>
+      <td>${esc(o.id)}</td>
       <td>${name(o.customerId)}</td>
       <td>${esc(o.address)}</td>
-      <td>${o.requires}</td>
-      <td>${slotById[o.id]?.date ?? ''}</td>
-      <td>${slotById[o.id]?.window ?? ''}</td>
-      <td>${o.status.toLowerCase()}</td>
+      <td>${esc(o.requires)}</td>
+      <td>${esc(slotById[o.id]?.date ?? '')}</td>
+      <td>${esc(slotById[o.id]?.window ?? '')}</td>
+      <td>${esc(o.status.toLowerCase())}</td>
     </tr>`).join('');
 
   return `
@@ -204,7 +205,7 @@ async function operations() {
       <h2>Book a visit</h2>
       <form id="book" class="form">
         <label>Customer
-          <select name="customerId" required>${customerList.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
+          <select name="customerId" required>${customerList.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select>
         </label>
         <label>Skill
           <select name="requires"><option>METER</option><option>LEAK</option><option>BACKFLOW</option></select>
@@ -227,15 +228,20 @@ const routes = [
 ];
 
 async function render() {
-  const hash = location.hash || '#/';
-  for (const [pattern, view] of routes) {
-    const match = pattern.exec(hash);
-    if (match) {
-      app.innerHTML = await view(...match.slice(1));
-      return;
+  try {
+    const hash = location.hash || '#/';
+    for (const [pattern, view] of routes) {
+      const match = pattern.exec(hash);
+      if (match) {
+        app.innerHTML = await view(...match.slice(1));
+        return;
+      }
     }
+    app.innerHTML = '<h1>Not found</h1><p><a href="#/">Home</a></p>';
+  } catch {
+    // A failed request used to leave the screen blank. Say so instead.
+    app.innerHTML = '<h1>Sorry</h1><p>Something went wrong loading this page.</p>';
   }
-  app.innerHTML = '<h1>Not found</h1><p><a href="#/">Home</a></p>';
 }
 
 app.addEventListener('click', async (event) => {

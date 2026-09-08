@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isWorkingDay, addWorkingDays, toDateKey, ukLocalToUtc, sameUkDay } from '../src/shared/dates.ts';
+import { isWorkingDay, addWorkingDays, toDateKey, ukLocalToUtc } from '../src/shared/dates.ts';
 
 test('weekends are not working days', () => {
   assert.equal(isWorkingDay(new Date('2026-09-05T12:00:00Z')), false);
@@ -27,7 +27,12 @@ test('malformed wall clock input is rejected', () => {
   assert.throws(() => ukLocalToUtc('2026-07-01', '25:00'));
 });
 
-test('the UK day decides whether two instants are the same day', () => {
-  assert.equal(sameUkDay(new Date('2026-09-02T08:00:00Z'), new Date('2026-09-02T23:30:00Z')), false);
-  assert.equal(sameUkDay(new Date('2026-09-02T22:59:00Z'), new Date('2026-09-02T08:00:00Z')), true);
+test('a day that is not in the month is rejected, not rolled over', () => {
+  assert.throws(() => ukLocalToUtc('2026-02-31', '10:00'), /no such date: "2026-02-31"/);
+  assert.throws(() => ukLocalToUtc('2026-04-31', '10:00'), /no such date: "2026-04-31"/);
+});
+
+test('the day the UK clocks go forward is still a real date', () => {
+  assert.equal(ukLocalToUtc('2026-03-29', '09:00').toISOString(), '2026-03-29T08:00:00.000Z');
+  assert.equal(ukLocalToUtc('2026-03-29', '00:30').toISOString(), '2026-03-29T00:30:00.000Z');
 });

@@ -11,24 +11,13 @@ test('a customer is quoted a window around the requested time', () => {
   assert.equal(slot.date, '2026-09-02');
 });
 
-test('customer slots use UK local time when the server runs in UTC', () => {
-  const originalTimezone = process.env.TZ;
-  process.env.TZ = 'UTC';
-
-  try {
-    const order = workOrders.find((workOrder) => workOrder.id === 'W-5006')!;
-    assert.deepEqual(slotFor(order), {
-      workOrderId: 'W-5006',
-      window: '23:30 to 02:15',
-      date: '2026-09-03',
-    });
-  } finally {
-    if (originalTimezone === undefined) {
-      delete process.env.TZ;
-    } else {
-      process.env.TZ = originalTimezone;
-    }
-  }
+test('a late evening UTC instant is quoted in UK local time on the next UK day', () => {
+  const order = workOrders.find((workOrder) => workOrder.id === 'W-5006')!;
+  assert.deepEqual(slotFor(order), {
+    workOrderId: 'W-5006',
+    window: '23:30 to 02:15',
+    date: '2026-09-03',
+  });
 });
 
 test('dispatch only plans queued work', () => {
@@ -125,4 +114,24 @@ test('an out of hours order after UK midnight is not merged with the daytime vis
       { ids: ['W-5006'], date: '2026-09-03', engineerId: 'E-02' },
     ],
   );
+});
+
+test('two orders hours apart at one address are two visits, not one', () => {
+  const morning: WorkOrder = {
+    id: 'W-9101', customerId: 'C-1001', address: '14 Ashfield Row, Bristol',
+    requires: 'METER', requestedAt: '2026-09-02T09:00:00Z', durationMinutes: 60, status: 'QUEUED',
+  };
+  const afternoon: WorkOrder = {
+    ...morning, id: 'W-9102', requires: 'BACKFLOW', requestedAt: '2026-09-02T13:00:00Z',
+  };
+
+  const { visits, unassigned } = dispatch([morning, afternoon]);
+
+  assert.deepEqual(unassigned, []);
+  assert.deepEqual(visits.map((v) => v.workOrderIds), [['W-9101'], ['W-9102']]);
+  assert.deepEqual(visits.map((v) => v.startsAt), [
+    '2026-09-02T09:00:00.000Z',
+    '2026-09-02T13:00:00.000Z',
+  ]);
+  assert.deepEqual(visits.map((v) => v.engineerId), ['E-01', 'E-02']);
 });

@@ -68,10 +68,6 @@ export function ukDateKey(d: Date): string {
 
 export const formatSlotDate = ukDateKey;
 
-export function sameUkDay(a: Date, b: Date): boolean {
-  return ukDateKey(a) === ukDateKey(b);
-}
-
 // Minutes the UK clock is ahead of UTC at a given instant: 0 in winter, 60 in summer.
 function ukOffsetMinutes(at: Date): number {
   const p = ukClockParts(at);
@@ -92,5 +88,10 @@ export function ukLocalToUtc(date: string, time: string): Date {
   }
   const wall = Date.UTC(year, month - 1, day, hour, minute);
   const guess = new Date(wall - ukOffsetMinutes(new Date(wall)) * 60_000);
-  return new Date(wall - ukOffsetMinutes(guess) * 60_000);
+  const at = new Date(wall - ukOffsetMinutes(guess) * 60_000);
+  // Date.UTC rolls 31 February over into March without a word, so 31 April books a
+  // visit on 1 May. The only honest check is whether the instant we built still lands
+  // on the day that was typed in.
+  if (ukDateKey(at) !== date) throw new Error(`no such date: "${date}"`);
+  return at;
 }

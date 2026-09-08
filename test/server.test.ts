@@ -1,5 +1,6 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import { server } from '../src/server.ts';
 
 let baseUrl: string;
@@ -83,9 +84,27 @@ test('the root serves the web app', async () => {
   assert.match(await response.text(), /<script src="\/app\.js">/);
 });
 
-test('files outside public are not served', async () => {
-  const response = await fetch(`${baseUrl}/package.json`);
-  assert.equal(response.status, 404);
+// The public directory as a URL path: D:\thornbury-app\public\ -> /D:/thornbury-app/public/
+const publicPath = `/${fileURLToPath(new URL('../public/', import.meta.url))
+  .replaceAll('\\', '/')
+  .replace(/^\/+/, '')}`;
+
+test('a request path that resolves outside public is not served', async () => {
+  const cases = [
+    // An absolute path in the request target survives resolve() on Windows, and used
+    // to be served because it happened to start with the public directory.
+    `${publicPath}app.js`,
+    // The same trick pointed at a sibling directory the prefix check also accepted.
+    `${publicPath.replace(/public\/$/, 'public-old/')}app.js`,
+    // Traversal that the URL parser leaves encoded, with an allowed extension.
+    '/..%2f..%2fpublic/app.js',
+    '/..%2fstyles.css',
+  ];
+
+  for (const path of cases) {
+    const response = await fetch(`${baseUrl}${path}`);
+    assert.equal(response.status, 404, `expected 404 for ${path}`);
+  }
 });
 
 test('the service index lists the routes', async () => {
@@ -115,6 +134,8 @@ test('engineers are listed', async () => {
   assert.equal(engineers.length, 3);
   assert.equal(engineers[0].id, 'E-01');
 });
+
+const DURATION_ERROR = 'durationMinutes must be a positive whole number of minutes, at most 1440';
 
 const booking = {
   customerId: 'C-1002', requires: 'BACKFLOW', date: '2026-09-02', time: '10:00', durationMinutes: 45,
@@ -150,7 +171,10 @@ test('a booking is rejected when it is wrong', async () => {
     [{ ...booking, customerId: 'C-9999' }, 'no such customer'],
     [{ ...booking, requires: 'DIVING' }, 'requires must be one of METER, LEAK, BACKFLOW'],
     [{ ...booking, time: '9am' }, 'date must be YYYY-MM-DD and time HH:MM, UK local'],
-    [{ ...booking, durationMinutes: 0 }, 'durationMinutes must be a positive whole number'],
+    [{ ...booking, date: '02/09/2026' }, 'date must be YYYY-MM-DD and time HH:MM, UK local'],
+    [{ ...booking, date: '2026-02-31' }, 'date must be YYYY-MM-DD and time HH:MM, UK local'],
+    [{ ...booking, durationMinutes: 0 }, DURATION_ERROR],
+    [{ ...booking, durationMinutes: 100000 }, DURATION_ERROR],
   ];
   for (const [body, error] of cases) {
     const response = await book(body);
@@ -161,6 +185,17 @@ test('a booking is rejected when it is wrong', async () => {
   const notJson = await book('not json', true);
   assert.equal(notJson.status, 400);
   assert.deepEqual(await notJson.json(), { error: 'body must be JSON' });
+
+  const notAnObject = await book('123', true);
+  assert.equal(notAnObject.status, 400);
+  assert.deepEqual(await notAnObject.json(), { error: 'expected a JSON object' });
+});
+
+test('a booking body larger than the cap is rejected', async () => {
+  const response = await book({ ...booking, note: 'x'.repeat(70 * 1024) });
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'body too large' });
 });
 
 test('work orders reject other methods', async () => {

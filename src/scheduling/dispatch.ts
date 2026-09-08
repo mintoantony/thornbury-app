@@ -39,21 +39,37 @@ function canonicalAddress(address: string): string {
   return address.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-// Queued orders, in start order, grouped by address and UK day.
+// When the engineer would be finished with everything already in the group.
+function runningEnd(group: WorkOrder[]): number {
+  const minutes = group.reduce((total, order) => total + order.durationMinutes, 0);
+  return Date.parse(group[0].requestedAt) + minutes * 60_000;
+}
+
+// Queued orders, in start order, grouped by address and UK day. One van only covers
+// jobs that run on from each other: an order joins the group already open at that
+// address that day only if it starts no later than the engineer would have finished
+// the ones already in it. A 09:00 job and a 13:00 job at one house are two visits.
 function groupIntoVisits(orders: WorkOrder[]): WorkOrder[][] {
   const queued = orders
     .filter((order) => order.status === 'QUEUED')
     .sort((a, b) =>
       Date.parse(a.requestedAt) - Date.parse(b.requestedAt) || a.id.localeCompare(b.id));
 
-  const groups = new Map<string, WorkOrder[]>();
+  const groups: WorkOrder[][] = [];
+  // Orders arrive in start order, so only the newest group for a key can still be open.
+  const open = new Map<string, WorkOrder[]>();
   for (const order of queued) {
     const key = `${canonicalAddress(order.address)}|${ukDateKey(new Date(order.requestedAt))}`;
-    const group = groups.get(key);
-    if (group) group.push(order);
-    else groups.set(key, [order]);
+    const group = open.get(key);
+    if (group && Date.parse(order.requestedAt) <= runningEnd(group)) {
+      group.push(order);
+      continue;
+    }
+    const started = [order];
+    open.set(key, started);
+    groups.push(started);
   }
-  return [...groups.values()];
+  return groups;
 }
 
 function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
