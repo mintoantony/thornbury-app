@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { slotFor } from '../src/scheduling/slots.ts';
 import { dispatch } from '../src/scheduling/dispatch.ts';
-import { workOrders } from '../src/db.ts';
+import { workOrders, type WorkOrder } from '../src/db.ts';
 
 test('a customer is quoted a window around the requested time', () => {
   const order = workOrders.find((w) => w.id === 'W-5001')!;
@@ -33,27 +33,96 @@ test('customer slots use UK local time when the server runs in UTC', () => {
 
 test('dispatch only plans queued work', () => {
   const plan = dispatch(workOrders.map((w) => ({ ...w, status: 'DONE' as const })));
-  assert.equal(plan.length, 0);
+  assert.deepEqual(plan, { visits: [], unassigned: [] });
 });
 
 test('dispatch matches the required skill', () => {
-  const plan = dispatch(workOrders);
-  const backflow = plan.find((a) => a.workOrderId === 'W-5003');
+  const backflow = dispatch(workOrders).visits.find((v) => v.workOrderIds.includes('W-5003'));
   assert.equal(backflow?.engineerId, 'E-02');
 });
 
-test('dispatch plans one visit for differently typed versions of an address', () => {
-  const ashfieldOrders = workOrders.filter(
-    (order) => order.id === 'W-5001' || order.id === 'W-5002',
-  ).map((order) => order.id === 'W-5001'
-    ? { ...order, address: '  14 Ashfield   Row, Bristol  ' }
-    : order);
+test('two orders at one address on one day become one visit', () => {
+  const { visits, unassigned } = dispatch(workOrders.filter((o) => o.customerId === 'C-1001'));
+
+  assert.equal(unassigned.length, 0);
+  assert.equal(visits.length, 1);
+  assert.deepEqual(visits[0], {
+    id: 'V-1',
+    engineerId: 'E-01',
+    engineerName: 'Dean Prosser',
+    customerId: 'C-1001',
+    address: '14 Ashfield Row, Bristol',
+    workOrderIds: ['W-5001', 'W-5002'],
+    requires: ['METER', 'LEAK'],
+    startsAt: '2026-09-02T08:00:00.000Z',
+    endsAt: '2026-09-02T10:30:00.000Z',
+    durationMinutes: 150,
+    date: '2026-09-02',
+    window: '08:00 to 12:30',
+  });
+});
+
+test('differently typed versions of an address are one visit', () => {
+  const ashfield = workOrders
+    .filter((o) => o.id === 'W-5001' || o.id === 'W-5002')
+    .map((o) => (o.id === 'W-5001' ? { ...o, address: '  14 Ashfield   Row, Bristol  ' } : o));
 
   assert.deepEqual(
-    dispatch(ashfieldOrders).map((assignment) => ({
-      workOrderId: assignment.workOrderId,
-      address: assignment.address,
-    })),
-    [{ workOrderId: 'W-5001', address: '  14 Ashfield   Row, Bristol  ' }],
+    dispatch(ashfield).visits.map((v) => ({ address: v.address, workOrderIds: v.workOrderIds })),
+    [{ address: '  14 Ashfield   Row, Bristol  ', workOrderIds: ['W-5001', 'W-5002'] }],
+  );
+});
+
+test('an engineer already out is skipped for the next one with the skill', () => {
+  const { visits, unassigned } = dispatch(workOrders);
+  const bellLane = visits.find((v) => v.workOrderIds.includes('W-5004'))!;
+  const gloucester = visits.find((v) => v.workOrderIds.includes('W-5005'))!;
+
+  assert.equal(bellLane.engineerId, 'E-01');
+  assert.equal(gloucester.engineerId, 'E-02');
+  assert.deepEqual(unassigned, []);
+});
+
+test('when the only engineer with the skill is out, the order is left with a reason', () => {
+  const clash: WorkOrder = {
+    id: 'W-9001', customerId: 'C-1003', address: '9 Castle Street, Thornbury',
+    requires: 'BACKFLOW', requestedAt: '2026-09-02T09:15:00Z', durationMinutes: 30, status: 'QUEUED',
+  };
+
+  const { unassigned } = dispatch([...workOrders, clash]);
+
+  assert.deepEqual(unassigned, [{
+    workOrderId: 'W-9001',
+    customerId: 'C-1003',
+    address: '9 Castle Street, Thornbury',
+    requires: 'BACKFLOW',
+    requestedAt: '2026-09-02T09:15:00Z',
+    reason: 'NO_ENGINEER_FREE',
+    detail: 'Ify Nwosu is at Unit 6, Severnside Park, Avonmouth until 10:45',
+  }]);
+});
+
+test('nobody with the skill leaves the order unassigned', () => {
+  const odd: WorkOrder = {
+    id: 'W-9002', customerId: 'C-1003', address: '9 Castle Street, Thornbury',
+    requires: 'DIVING', requestedAt: '2026-09-02T10:00:00Z', durationMinutes: 30, status: 'QUEUED',
+  };
+
+  const { visits, unassigned } = dispatch([odd]);
+
+  assert.deepEqual(visits, []);
+  assert.equal(unassigned[0].reason, 'NO_ENGINEER_WITH_SKILLS');
+  assert.equal(unassigned[0].detail, 'nobody holds DIVING');
+});
+
+test('an out of hours order after UK midnight is not merged with the daytime visit', () => {
+  const { visits } = dispatch(workOrders.filter((o) => o.customerId === 'C-1002'));
+
+  assert.deepEqual(
+    visits.map((v) => ({ ids: v.workOrderIds, date: v.date, engineerId: v.engineerId })),
+    [
+      { ids: ['W-5003'], date: '2026-09-02', engineerId: 'E-02' },
+      { ids: ['W-5006'], date: '2026-09-03', engineerId: 'E-02' },
+    ],
   );
 });

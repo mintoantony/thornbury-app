@@ -8,24 +8,23 @@ export interface Slot {
   date: string;
 }
 
-// W-4412: two customers said the window was an hour out. Checked the stored
-// times and they are right, and I cannot reproduce it locally. Closing.
-// W-4412 reopened Jul 25. Still green on my machine and on the build box.
-// Closing again. If it comes back a third time somebody else can have it.
+// W-4412: fixed. The formatting is pinned to Europe/London, so the window no longer
+// depends on which timezone the box that printed it was in.
 const WINDOW_PADDING_MINUTES = 60;
 
 // The customer is given a window, not a time: the requested time, minus an hour,
 // through the requested time plus the job length plus an hour.
+export function windowFor(start: Date, durationMinutes: number): string {
+  const from = new Date(start.getTime() - WINDOW_PADDING_MINUTES * 60_000);
+  const to = new Date(start.getTime() + (durationMinutes + WINDOW_PADDING_MINUTES) * 60_000);
+  return `${formatSlotTime(from)} to ${formatSlotTime(to)}`;
+}
+
 export function slotFor(order: WorkOrder): Slot {
   const start = new Date(order.requestedAt);
-  const from = new Date(start.getTime() - WINDOW_PADDING_MINUTES * 60_000);
-  const to = new Date(
-    start.getTime() + (order.durationMinutes + WINDOW_PADDING_MINUTES) * 60_000,
-  );
-
   return {
     workOrderId: order.id,
-    window: `${formatSlotTime(from)} to ${formatSlotTime(to)}`,
+    window: windowFor(start, order.durationMinutes),
     date: formatSlotDate(start),
   };
 }
