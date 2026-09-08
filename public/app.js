@@ -1,9 +1,11 @@
 const app = document.getElementById('app');
 
 const api = {
-  async get(path) {
+  async get(path, { allowNotFound = false } = {}) {
     const response = await fetch(path);
-    if (!response.ok) throw new Error(`GET ${path} returned ${response.status}`);
+    if (!response.ok && !(allowNotFound && response.status === 404)) {
+      throw new Error(`GET ${path} returned ${response.status}`);
+    }
     return response.json();
   },
   async post(path, body) {
@@ -70,9 +72,9 @@ async function customers() {
 
 async function account(id) {
   const [customer, invoices, statement] = await Promise.all([
-    api.get(`/customers/${id}`),
-    api.get(`/customers/${id}/invoices`),
-    api.get(`/customers/${id}/statement`),
+    api.get(`/customers/${id}`, { allowNotFound: true }),
+    api.get(`/customers/${id}/invoices`, { allowNotFound: true }),
+    api.get(`/customers/${id}/statement`, { allowNotFound: true }),
   ]);
   if (customer.error) return `<h1>No such customer</h1><p><a href="#/customers">Back to customers</a></p>`;
 

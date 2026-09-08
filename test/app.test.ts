@@ -7,8 +7,13 @@ import { fileURLToPath } from 'node:url';
 const source = readFileSync(fileURLToPath(new URL('../public/app.js', import.meta.url)), 'utf8');
 
 test('a failed request shows a message instead of leaving the screen blank', () => {
-  assert.match(source, /if \(!response\.ok\) throw/);
+  assert.match(source, /if \(!response\.ok && !\(allowNotFound && response\.status === 404\)\)/);
   assert.match(source, /Something went wrong loading this page\./);
+});
+
+test('an unknown customer is treated as a normal 404 result, not a thrown error', () => {
+  assert.match(source, /api\.get\(`\/customers\/\$\{id\}`, \{ allowNotFound: true \}\)/);
+  assert.match(source, /No such customer/);
 });
 
 test('every interpolated API value in the web app is escaped', () => {
