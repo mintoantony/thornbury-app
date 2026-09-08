@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { slotFor } from '../src/scheduling/slots.ts';
 import { dispatch } from '../src/scheduling/dispatch.ts';
-import { workOrders } from '../src/db.ts';
+import { workOrders, type WorkOrder } from '../src/db.ts';
 
 test('a customer is quoted a window around the requested time', () => {
   const order = workOrders.find((w) => w.id === 'W-5001')!;
@@ -56,4 +56,50 @@ test('dispatch plans one visit for differently typed versions of an address', ()
     })),
     [{ workOrderId: 'W-5001', address: '  14 Ashfield   Row, Bristol  ' }],
   );
+});
+
+test('one engineer takes the meter and the leak at the same house in one visit', () => {
+  const plan = dispatch(workOrders);
+  const whitcombe = plan.filter((a) => a.covers.includes('W-5001') || a.covers.includes('W-5002'));
+
+  assert.deepEqual(whitcombe, [{
+    workOrderId: 'W-5001',
+    covers: ['W-5001', 'W-5002'],
+    engineerId: 'E-01',
+    address: '14 Ashfield Row, Bristol',
+    startsAt: '2026-09-02T08:00:00Z',
+    durationMinutes: 150,
+  }]);
+});
+
+test('jobs either side of UTC midnight on the same UK night are one visit', () => {
+  // 23:30 UTC on 2 September is 00:30 BST on the 3rd. The second job is the
+  // same UK day, and used to get its own van because the UTC dates differed.
+  const orders: WorkOrder[] = [
+    { id: 'W-9001', customerId: 'C-1001', address: '14 Ashfield Row, Bristol', requires: 'METER', requestedAt: '2026-09-02T23:30:00Z', durationMinutes: 60, status: 'QUEUED' },
+    { id: 'W-9002', customerId: 'C-1001', address: '14 Ashfield Row, Bristol', requires: 'LEAK', requestedAt: '2026-09-03T09:00:00Z', durationMinutes: 60, status: 'QUEUED' },
+  ];
+
+  const plan = dispatch(orders);
+  assert.equal(plan.length, 1);
+  assert.deepEqual(plan[0].covers, ['W-9001', 'W-9002']);
+});
+
+test('a job on the next UK day is not mistaken for a repeat visit', () => {
+  // Trelawney's out of hours backflow test at 23:30 UTC is the next UK day,
+  // so it is a separate visit from the morning one, not a duplicate.
+  const plan = dispatch(workOrders);
+  const outOfHours = plan.find((a) => a.workOrderId === 'W-5006');
+  assert.equal(outOfHours?.engineerId, 'E-02');
+  assert.deepEqual(outOfHours?.covers, ['W-5006']);
+});
+
+test('when nobody has every skill, one van goes for the earliest job that can be staffed', () => {
+  const orders: WorkOrder[] = [
+    { id: 'W-9003', customerId: 'C-1001', address: '14 Ashfield Row, Bristol', requires: 'BACKFLOW', requestedAt: '2026-09-02T08:00:00Z', durationMinutes: 60, status: 'QUEUED' },
+    { id: 'W-9004', customerId: 'C-1001', address: '14 Ashfield Row, Bristol', requires: 'DIVING', requestedAt: '2026-09-02T09:00:00Z', durationMinutes: 60, status: 'QUEUED' },
+  ];
+
+  const plan = dispatch(orders);
+  assert.deepEqual(plan.map((a) => [a.workOrderId, a.engineerId]), [['W-9003', 'E-02']]);
 });

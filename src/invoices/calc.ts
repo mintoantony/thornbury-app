@@ -1,4 +1,4 @@
-import { percentOf, sum, type Pence } from '../shared/money.ts';
+import { format, percentOf, sum, type Pence } from '../shared/money.ts';
 import type { Invoice, LineItem } from '../db.ts';
 
 export interface InvoiceTotal {
@@ -24,11 +24,20 @@ function legacySurcharge(invoice: Invoice): Pence {
 
 export function totalFor(invoice: Invoice): InvoiceTotal {
   const net = sum(invoice.lines.map(lineTotal)) + legacySurcharge(invoice);
-  const vatable = sum(
-    invoice.lines.filter((line) => line.kind === 'SERVICE').map(lineTotal),
-  );
-  const vat = percentOf(vatable, STANDARD_VAT_PERCENT);
+  // Every line is standard rated, whatever its kind and whoever the account
+  // belongs to, and so is the legacy postage surcharge.
+  const vat = percentOf(net, STANDARD_VAT_PERCENT);
   return { net, vat, total: net + vat };
+}
+
+// The pounds and pence the customer reads, for each part of the total. Anything
+// customer facing wants VAT broken out, not just rolled into the total.
+export function displayTotal(total: InvoiceTotal): Record<keyof InvoiceTotal, string> {
+  return {
+    net: format(total.net),
+    vat: format(total.vat),
+    total: format(total.total),
+  };
 }
 
 export function outstandingFor(customerId: string, all: Invoice[]): Pence {

@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
-import { customers, invoices, workOrders } from './db.ts';
-import { totalFor, outstandingFor } from './invoices/calc.ts';
+import { customers, invoices, workOrders, type Invoice } from './db.ts';
+import { displayTotal, totalFor, outstandingFor } from './invoices/calc.ts';
 import { statementFor } from './invoices/statement.ts';
 import { dispatch } from './scheduling/dispatch.ts';
 import { slotsFor } from './scheduling/slots.ts';
@@ -12,6 +12,14 @@ function json(res: import('node:http').ServerResponse, status: number, body: unk
   const payload = JSON.stringify(body, null, 2);
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(payload);
+}
+
+// Anywhere an invoice goes out over the wire it carries its own net, VAT and
+// total, in pence and in pounds. Finance were adding the VAT on by hand because
+// nothing here ever sent it.
+function withTotals(invoice: Invoice) {
+  const total = totalFor(invoice);
+  return { ...invoice, ...total, formatted: displayTotal(total) };
 }
 
 export const server = createServer((req, res) => {
@@ -49,7 +57,7 @@ export const server = createServer((req, res) => {
   }
 
   if (parts[0] === 'customers' && parts.length === 3 && parts[2] === 'invoices') {
-    return json(res, 200, invoices.filter((i) => i.customerId === parts[1]));
+    return json(res, 200, invoices.filter((i) => i.customerId === parts[1]).map(withTotals));
   }
 
   if (parts[0] === 'customers' && parts.length === 3 && parts[2] === 'statement') {
@@ -65,8 +73,8 @@ export const server = createServer((req, res) => {
   if (parts[0] === 'invoices' && parts.length === 2) {
     const invoice = invoices.find((i) => i.id === parts[1]);
     if (!invoice) return json(res, 404, { error: 'no such invoice' });
-    const totals = totalFor(invoice);
-    return json(res, 200, { ...invoice, ...totals, display: format(totals.total) });
+    const withVat = withTotals(invoice);
+    return json(res, 200, { ...withVat, display: withVat.formatted.total });
   }
 
   if (parts[0] === 'work-orders') {
