@@ -4,3 +4,4 @@ node_modules/
 
 # tooling artefacts
 .claude/evidence/
+.omc/
